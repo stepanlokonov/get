@@ -1,1 +1,27 @@
-print(f"Число: {number}, отправленные по I2C данные: [0x{(self.address << 1):02X}, 0x{first_byte:02X}, 0x{second_byte:02X}]\n")
+import RPi.GPIO as G
+import signal_generator as sg
+import time
+import numpy as np
+
+leds=[16,20,21,25,26,17,27,22]
+G.setmode(G.BCM)
+G.setup(leds, G.OUT)
+G.output(leds, 0)
+dac = r2r.R2RDAC()
+amplitude = 3.17
+signal_frequency = 10
+sampling_frequency = 1000
+
+sg.generate_sine_to_dac(dac, frequency=10, amplitude=3.17, duration=1/1000)
+
+
+
+try:
+    while True:
+        try:
+            voltage = amplitude*get_sin_wave_amplitude(10, 1/1000)
+            G.output(leds, 1)
+            
+finally:
+    GPIO.output(leds, 0)
+    GPIO.cleanup()
