@@ -1,27 +1,76 @@
-import RPi.GPIO as G
-import signal_generator as sg
+import RPi.GPIO as GPIO
 import time
-import numpy as np
 
-leds=[16,20,21,25,26,17,27,22]
-G.setmode(G.BCM)
-G.setup(leds, G.OUT)
-G.output(leds, 0)
-dac = r2r.R2RDAC()
-amplitude = 3.17
-signal_frequency = 10
-sampling_frequency = 1000
-
-sg.generate_sine_to_dac(dac, frequency=10, amplitude=3.17, duration=1/1000)
-
-
-
-try:
-    while True:
-        try:
-            voltage = amplitude*get_sin_wave_amplitude(10, 1/1000)
-            G.output(leds, 1)
+class R2R_ADC:
+    def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
+        self.dynamic_range = dynamic_range
+        self.verbose = verbose
+        self.compare_time = compare_time
+        
+        self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
+        self.comp_gpio = 21
+        
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.bits_gpio, GPIO.OUT, initial=0)
+        GPIO.setup(self.comp_gpio, GPIO.IN)
+    
+    def __del__(self):
+        """Деструктор - выставляет 0 на выход ЦАП и очищает настройки GPIO"""
+        for pin in self.bits_gpio:
+            GPIO.output(pin, 0)
+        GPIO.cleanup()
+    
+    def number_to_dac(self, number):
+        """Подает число number на вход ЦАП"""
+        binary = format(number, '08b')  # Преобразуем в 8-битное двоичное представление
+        for i, pin in enumerate(self.bits_gpio):
+            GPIO.output(pin, int(binary[i]))
+    
+    def sequential_counting_adc(self):
+        """Последовательно подает числа на ЦАП до превышения входного напряжения"""
+        max_number = (1 << len(self.bits_gpio)) - 1  # Максимальное число для 8-битного ЦАП
+        
+        for number in range(max_number + 1):
+            self.number_to_dac(number)
+            time.sleep(self.compare_time)
             
-finally:
-    GPIO.output(leds, 0)
-    GPIO.cleanup()
+            # Читаем состояние компаратора (0 = U_DAC < U_IN, 1 = U_DAC > U_IN)
+            comparator_state = GPIO.input(self.comp_gpio)
+            
+            if self.verbose:
+                print(f"Number: {number}, Binary: {format(number, '08b')}, Comparator: {comparator_state}")
+            
+            # Если напряжение на ЦАП превысило входное напряжение
+            if comparator_state == 1:
+                return number
+        
+        # Если не превысили - возвращаем максимальное значение
+        return max_number
+    
+    def get_sc_voltage(self):
+        """Возвращает измеренное напряжение в Вольтах"""
+        number = self.sequential_counting_adc()
+        max_number = (1 << len(self.bits_gpio)) - 1
+        voltage = (number / max_number) * self.dynamic_range
+        return voltage
+
+# Основной охранник
+if __name__ == "__main__":
+    try:
+        # Создаем объект ADC с измеренным динамическим диапазоном
+        # ЗАМЕНИТЕ 3.3 на реально измеренное значение напряжения вашего ЦАП!
+        adc = R2R_ADC(dynamic_range=3.3, verbose=False)
+        
+        while True:
+            # Читаем напряжение
+            voltage = adc.get_sc_voltage()
+            # Печатаем в терминал
+            print(f"Измеренное напряжение: {voltage:.2f} В")
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        print("\nПрограмма прервана пользователем")
+    finally:
+        # Вызываем деструктор
+        if 'adc' in locals():
+            adc.__del__()
