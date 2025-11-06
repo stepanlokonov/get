@@ -1,0 +1,126 @@
+import matplotlib.pyplot as plt
+import time
+import RPi.GPIO as GPIO
+class R2R_ADC:
+    def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
+        self.dynamic_range = dynamic_range
+        self.verbose = verbose
+        self.compare_time = compare_time
+        
+        self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
+        self.comp_gpio = 21
+        
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.bits_gpio, GPIO.OUT, initial=0)
+        GPIO.setup(self.comp_gpio, GPIO.IN)
+    
+    def __del__(self):
+        for pin in self.bits_gpio:
+            GPIO.output(pin, 0)
+        GPIO.cleanup()
+    
+    def number_to_dac(self, number):
+        binary = format(number, '08b')  
+        for i, pin in enumerate(self.bits_gpio):
+            GPIO.output(pin, int(binary[i]))
+    
+    def successive_approximation_adc_with_progress(self):
+        """Алгоритм бинарного поиска с записью промежуточных значений"""
+        max_number = (1 << len(self.bits_gpio)) - 1
+        number = 0
+        
+        voltage_progress = []
+        time_progress = []
+        start_time = time.time()
+        
+        # Проходим по каждому биту, начиная со старшего
+        for bit in range(len(self.bits_gpio) - 1, -1, -1):
+            # Устанавливаем текущий бит в 1
+            test_number = number | (1 << bit)
+            self.number_to_dac(test_number)
+            time.sleep(self.compare_time)
+            
+            # Записываем текущее напряжение и время
+            current_time = time.time() - start_time
+            current_voltage = (test_number / max_number) * self.dynamic_range
+            
+            voltage_progress.append(current_voltage)
+            time_progress.append(current_time)
+            
+            # Читаем состояние компаратора
+            comparator_state = GPIO.input(self.comp_gpio)
+            
+            if self.verbose:
+                print(f"Bit {bit}: Test number {test_number} ({format(test_number, '08b')}), Voltage: {current_voltage:.2f} V, Comparator: {comparator_state}")
+            
+            # Если напряжение ЦАП меньше входного напряжения, оставляем бит установленным
+            if comparator_state == 0:
+                number = test_number
+        
+        # Записываем финальное значение
+        final_voltage = (number / max_number) * self.dynamic_range
+        final_time = time.time() - start_time
+        voltage_progress.append(final_voltage)
+        time_progress.append(final_time)
+        
+        return number, voltage_progress, time_progress
+    
+    def get_sar_voltage_with_progress(self):
+        """Возвращает конечное напряжение и массивы промежуточных значений"""
+        number, voltage_progress, time_progress = self.successive_approximation_adc_with_progress()
+        return voltage_progress, time_progress
+
+
+# Создайте объект класса R2R_ADC
+adc = R2R_ADC(dynamic_range=3.17, verbose=False)
+
+# Создайте два списка для хранения всех промежуточных значений:
+# Для хранения всех напряжений в процессе подбора
+all_voltage_values = []
+# Для хранения всех моментов времени в процессе подбора
+all_time_values = []
+
+# Создайте переменную в которой будет задаваться продолжительность измерений
+duration = 10.0  # 10 секунд измерений
+
+try:
+    # Сохраните момент начала эксперимента
+    start_time = time.time()
+    
+    # Пока разница между текущим временем и начальным моментом меньше продолжительности эксперимента:
+    while True:
+        # Получаем массивы промежуточных значений одного измерения
+        voltage_progress, time_progress = adc.get_sar_voltage_with_progress()
+        
+        # Добавляем все промежуточные значения в общие списки
+        all_voltage_values.extend(voltage_progress)
+        all_time_values.extend(time_progress)
+        
+        # Выводим информацию о текущем измерении
+        final_voltage = voltage_progress[-1]
+        current_total_time = time.time() - start_time
+
+        plt.plot(all_time_values, all_voltage_values, 'b-', linewidth=1, alpha=0.7)
+        plt.title('Процесс подбора напряжения методом последовательных приближений')
+        plt.xlabel('Время, с')
+        plt.ylabel('Напряжение, В')
+        plt.grid(True)
+        plt.show()
+        print(f"Время: {current_total_time:.2f} с, Финальное напряжение: {final_voltage:.2f} В, Шагов: {len(voltage_progress)}")
+        sampling_periods = []
+        for i in range(1, len(all_time_values)):
+            period = all_time_values[i] - all_time_values[i-1]
+            sampling_periods.append(period)
+    
+        plt.figure(figsize=(10, 6))
+        plt.hist(sampling_periods, bins=20, edgecolor='black', alpha=0.7, rwidth=0.9)
+        plt.title('Распределение периодов измерений в процессе подбора (SAR)')
+        plt.xlabel('Период измерения, с')
+        plt.ylabel('Количество измерений')
+        plt.xlim(0, 0.06)
+        plt.grid(True)
+        plt.show()
+        break
+finally:
+    adc.__del__()
+
