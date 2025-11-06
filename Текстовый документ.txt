@@ -2,12 +2,10 @@ import RPi.GPIO as GPIO
 import time
 import matplotlib.pyplot as plt
 import numpy as np
-from collections import deque
 
 class R2R_ADC:
-    def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
+    def __init__(self, dynamic_range, compare_time=0.01):
         self.dynamic_range = dynamic_range
-        self.verbose = verbose
         self.compare_time = compare_time
         
         self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
@@ -18,176 +16,96 @@ class R2R_ADC:
         GPIO.setup(self.comp_gpio, GPIO.IN)
     
     def __del__(self):
-        """Деструктор - выставляет 0 на выход ЦАП и очищает настройки GPIO"""
         for pin in self.bits_gpio:
             GPIO.output(pin, 0)
         GPIO.cleanup()
     
     def number_to_dac(self, number):
-        """Подает число number на вход ЦАП"""
-        binary = format(number, '08b')  # Преобразуем в 8-битное двоичное представление
+        binary = format(number, '08b')
         for i, pin in enumerate(self.bits_gpio):
             GPIO.output(pin, int(binary[i]))
     
     def sequential_counting_adc(self):
-        """Последовательно подает числа на ЦАП до превышения входного напряжения"""
-        max_number = (1 << len(self.bits_gpio)) - 1  # Максимальное число для 8-битного ЦАП
+        max_number = (1 << len(self.bits_gpio)) - 1
         
         for number in range(max_number + 1):
             self.number_to_dac(number)
             time.sleep(self.compare_time)
             
-            # Читаем состояние компаратора (0 = U_DAC < U_IN, 1 = U_DAC > U_IN)
             comparator_state = GPIO.input(self.comp_gpio)
             
-            if self.verbose:
-                print(f"Number: {number}, Binary: {format(number, '08b')}, Comparator: {comparator_state}")
-            
-            # Если напряжение на ЦАП превысило входное напряжение
             if comparator_state == 1:
                 return number
         
-        # Если не превысили - возвращаем максимальное значение
         return max_number
     
     def get_sc_voltage(self):
-        """Возвращает измеренное напряжение в Вольтах"""
         number = self.sequential_counting_adc()
         max_number = (1 << len(self.bits_gpio)) - 1
         voltage = (number / max_number) * self.dynamic_range
         return voltage
 
 def plot_voltage_vs_time(time, voltage, max_voltage):
-    """Строит график зависимости напряжения от времени"""
-    # Создайте окно для отображения графика
     plt.figure(figsize=(10, 6))
+    plt.plot(time, voltage, 'b-', linewidth=1.5)
+    plt.title('График зависимости напряжения на входе АЦП от времени')
+    plt.xlabel('Время, с')
+    plt.ylabel('Напряжение, В')
     
-    # Разместите в этом окне график зависимости напряжений от времени
-    plt.plot(time, voltage, 'b-', linewidth=1)
-    
-    # Задайте название графика и осей
-    plt.title('График зависимости напряжения на входе АЦП от времени', fontsize=12)
-    plt.xlabel('Время, с', fontsize=10)
-    plt.ylabel('Напряжение, В', fontsize=10)
-    
-    # Задайте границы по осям X и Y
     if time:
         plt.xlim(0, max(time))
     plt.ylim(0, max_voltage)
     
-    # Установим конкретные значения на оси Y как на картинке
     y_ticks = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
     plt.yticks(y_ticks)
-    
-    # Включите отображение сетки
     plt.grid(True, alpha=0.3)
-    
-    # Отобразите график
     plt.tight_layout()
     plt.show()
 
 def plot_sampling_period_hist(time):
-    """Строит распределение количества измерений по их продолжительности"""
     if len(time) < 2:
-        print("Недостаточно данных для построения гистограммы")
         return
     
-    # Создайте список для хранения промежутка времени, потраченного на каждое измерение
     sampling_periods = []
-    
-    # Заполните список разницами между соседними моментами времени
     for i in range(1, len(time)):
         sampling_periods.append(time[i] - time[i-1])
     
-    # Создайте окно для отображения графика
     plt.figure(figsize=(10, 6))
-    
-    # Разместите в этом окне гистограмму периодов измерений
-    # Создаем бины как на картинке: от 0 до 0.06 с
-    bins = np.linspace(0, 0.06, 13)  # 12 интервалов от 0 до 0.06
+    bins = np.linspace(0, 0.06, 13)
     plt.hist(sampling_periods, bins=bins, alpha=0.7, edgecolor='black', color='lightblue')
     
-    # Задайте название графика и осей
-    plt.title('Распределение периодов дискретизации измерений\nпо времени на одно измерение', fontsize=12)
-    plt.xlabel('Период измерения, с', fontsize=10)
-    plt.ylabel('Количество измерений', fontsize=10)
+    plt.title('Распределение периодов дискретизации измерений\nпо времени на одно измерение')
+    plt.xlabel('Период измерения, с')
+    plt.ylabel('Количество измерений')
     
-    # Задайте границы по оси X
     plt.xlim(0, 0.06)
-    
-    # Установим значения на оси Y как на картинке
     plt.ylim(0, 1000)
     y_ticks = [0, 200, 400, 600, 800, 1000]
     plt.yticks(y_ticks)
-    
-    # Установим значения на оси X как на картинке
     x_ticks = [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
     plt.xticks(x_ticks)
-    
-    # Включите отображение сетки
     plt.grid(True, alpha=0.3)
-    
-    # Отобразите гистограмму
     plt.tight_layout()
     plt.show()
 
-# Основной охранник
 if __name__ == "__main__":
     try:
-        # Создаем объект ADC с измеренным динамическим диапазоном
-        # ЗАМЕНИТЕ 3.3 на реально измеренное значение напряжения вашего ЦАП!
-        adc = R2R_ADC(dynamic_range=3.3, verbose=False)
+        adc = R2R_ADC(dynamic_range=3.3)
         
-        # Списки для хранения данных измерений
         time_points = []
         voltage_points = []
         start_time = time.time()
-        measurement_count = 100  # Количество измерений для графиков
         
-        print("=== Начало измерений для построения графиков ===")
-        print(f"Будет выполнено {measurement_count} измерений...")
-        
-        # Генерируем тестовые данные, похожие на реальные измерения
-        for i in range(measurement_count):
-            # Читаем напряжение (для теста генерируем синусоидальный сигнал)
-            # voltage = adc.get_sc_voltage()  # Раскомментируйте для реальных измерений
+        while True:
+            voltage = adc.get_sc_voltage()
+            current_time = time.time() - start_time
             
-            # Тестовые данные - синусоида
-            t = i * 0.05
-            voltage = 1.5 + 1.0 * np.sin(2 * np.pi * 0.2 * t)  # Синусоида 0.2 Гц
-            
-            current_time = t
             time_points.append(current_time)
             voltage_points.append(voltage)
             
-            # Печатаем прогресс каждые 10 измерений
-            if (i + 1) % 10 == 0:
-                print(f"Выполнено: {i+1}/{measurement_count} измерений")
-        
-        print("\n=== Измерения завершены ===")
-        
-        # Создаем данные для гистограммы (периоды дискретизации)
-        # Для демонстрации создадим нормальное распределение периодов
-        hist_time_points = [0]
-        for i in range(1000):
-            # Периоды около 0.03 секунды с некоторым разбросом
-            period = 0.03 + np.random.normal(0, 0.008)
-            period = max(0.001, min(0.06, period))  # Ограничиваем диапазон
-            hist_time_points.append(hist_time_points[-1] + period)
-        
-        # Строим график напряжения от времени
-        print("\n=== Построение графика напряжения от времени ===")
-        plot_voltage_vs_time(time_points, voltage_points, adc.dynamic_range)
-        
-        # Строим гистограмму периодов дискретизации
-        print("\n=== Построение гистограммы периодов дискретизации ===")
-        plot_sampling_period_hist(hist_time_points)
-        
     except KeyboardInterrupt:
-        print("\nПрограмма прервана пользователем")
-    except Exception as e:
-        print(f"\nПроизошла ошибка: {e}")
+        plot_voltage_vs_time(time_points, voltage_points, 3.3)
+        plot_sampling_period_hist(time_points)
     finally:
-        # Вызываем деструктор
         if 'adc' in locals():
             adc.__del__()
