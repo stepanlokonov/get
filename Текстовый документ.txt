@@ -23,23 +23,17 @@ class R2R_ADC:
     
     def sequential_counting_adc(self):
         """Последовательный счетный АЦП"""
-        max_number = (1 << len(self.bits_gpio)) - 1  # Максимальное число для ЦАП
+        max_number = (1 << len(self.bits_gpio)) - 1
         
         for number in range(max_number + 1):
             self.number_to_dac(number)
             time.sleep(self.compare_time)
             
-            # Читаем состояние компаратора
             comparator_state = GPIO.input(self.comp_gpio)
             
-            if self.verbose:
-                print(f"Number: {number}, Comparator: {comparator_state}")
-            
-            # Если напряжение ЦАП превысило входное напряжение
             if comparator_state == 1:
                 return number
         
-        # Если не превысило - возвращаем максимальное число
         return max_number
     
     def get_sc_voltage(self):
@@ -82,76 +76,33 @@ def plot_sampling_period_hist(time_values):
     plt.grid(True)
     plt.show()
 
-def main():
-    """Основная функция для непрерывного измерения напряжения"""
-    try:
-        # Создаем объект класса R2R_ADC
-        # dynamic_range нужно заменить на реально измеренное значение мультиметром
-        adc = R2R_ADC(dynamic_range=3.3, compare_time=0.01, verbose=False)
-        
-        while True:
-            # Читаем напряжение
-            voltage = adc.get_sc_voltage()
-            # Печатаем его в терминал
-            print(f"Измеренное напряжение: {voltage:.3f} В")
-            time.sleep(0.5)
-            
-    except KeyboardInterrupt:
-        print("\nПрограмма остановлена пользователем")
-    finally:
-        # Вызываем деструктор
-        if 'adc' in locals():
-            adc.__del__()
+# Создайте объект класса R2R_ADC
+adc = R2R_ADC(dynamic_range=3.3)
 
-def measurement_with_plot():
-    """Функция для измерения с построением графиков"""
-    # Создаем объект класса R2R_ADC
-    adc = R2R_ADC(dynamic_range=3.3, compare_time=0.01, verbose=False)
-    
-    voltage_values = []
-    time_values = []
-    duration = 3.0  # Продолжительность измерений в секундах
-    
-    try:
-        # Сохраняем момент начала эксперимента
-        start_time = time.time()
-        
-        # Пока разница между текущим временем и начальным моментом меньше продолжительности эксперимента
-        while (time.time() - start_time) < duration:
-            # Добавляем в список измеренные значения напряжений
-            voltage = adc.get_sc_voltage()
-            voltage_values.append(voltage)
-            
-            # Добавляем в список моменты времени (относительно начала)
-            current_time = time.time() - start_time
-            time_values.append(current_time)
-            
-            if len(voltage_values) % 10 == 0:
-                print(f"Измерение {len(voltage_values)}: {voltage:.3f} В")
-    
-    except KeyboardInterrupt:
-        print("\nИзмерение прервано пользователем")
-    finally:
-        # Вызываем деструктор
-        adc.__del__()
-    
-    # Строим графики
-    if voltage_values and time_values:
-        plot_voltage_vs_time(time_values, voltage_values, 3.3)
-        plot_sampling_period_hist(time_values)
-    
-    return time_values, voltage_values
+# Создайте два списка:
+voltage_values = []
+time_values = []
+duration = 3.0  # Продолжительность измерений
 
-if __name__ == "__main__":
-    print("Выберите режим работы:")
-    print("1 - Непрерывное измерение")
-    print("2 - Измерение с построением графиков")
+try:
+    # Сохраните момент начала эксперимента
+    start_time = time.time()
     
-    choice = input("Введите 1 или 2: ")
-    
-    if choice == "1":
-        main()
-    elif choice == "2":
-        measurement_with_plot()
-    else:
-        print("Неверный выбор")
+    # Пока разница между текущим временем и начальным моментом меньше продолжительности эксперимента:
+    while (time.time() - start_time) < duration:
+        # Добавляйте в список измеренные значения напряжений
+        voltage = adc.get_sc_voltage()
+        voltage_values.append(voltage)
+        
+        # Добавляйте в список моменты времени
+        current_time = time.time() - start_time
+        time_values.append(current_time)
+
+finally:
+    # Вызовите деструктор класса
+    adc.__del__()
+
+# Построение графиков
+if voltage_values and time_values:
+    plot_voltage_vs_time(time_values, voltage_values, 3.3)
+    plot_sampling_period_hist(time_values)
