@@ -22,26 +22,37 @@ class R2R_ADC:
             GPIO.output(pin, bit_value)
     
     def sequential_counting_adc(self):
-        """Последовательный счетный АЦП"""
+        """Последовательный счетный АЦП с записью промежуточных значений"""
         max_number = (1 << len(self.bits_gpio)) - 1
+        
+        voltage_values = []
+        time_values = []
+        start_time = time.time()
         
         for number in range(max_number + 1):
             self.number_to_dac(number)
             time.sleep(self.compare_time)
             
+            # Записываем текущее напряжение и время
+            current_time = time.time() - start_time
+            current_voltage = (number / max_number) * self.dynamic_range
+            
+            voltage_values.append(current_voltage)
+            time_values.append(current_time)
+            
             comparator_state = GPIO.input(self.comp_gpio)
             
             if comparator_state == 1:
-                return number
+                return number, voltage_values, time_values
         
-        return max_number
+        return max_number, voltage_values, time_values
     
-    def get_sc_voltage(self):
-        """Возвращает измеренное напряжение в Вольтах"""
-        digital_value = self.sequential_counting_adc()
+    def get_sc_voltage_with_progress(self):
+        """Возвращает конечное напряжение и массивы промежуточных значений"""
+        digital_value, voltage_progress, time_progress = self.sequential_counting_adc()
         max_digital_value = (1 << len(self.bits_gpio)) - 1
-        voltage = (digital_value / max_digital_value) * self.dynamic_range
-        return voltage
+        final_voltage = (digital_value / max_digital_value) * self.dynamic_range
+        return final_voltage, voltage_progress, time_progress
     
     def __del__(self):
         """Деструктор - очистка GPIO"""
@@ -50,8 +61,8 @@ class R2R_ADC:
 def plot_voltage_vs_time(time_values, voltage_values, max_voltage):
     """Строит график зависимости напряжения от времени"""
     plt.figure(figsize=(10, 6))
-    plt.plot(time_values, voltage_values)
-    plt.title('Зависимость напряжения от времени')
+    plt.plot(time_values, voltage_values, 'b-', linewidth=2)
+    plt.title('Процесс подбора напряжения АЦП')
     plt.xlabel('Время, с')
     plt.ylabel('Напряжение, В')
     plt.ylim(0, max_voltage * 1.1)
@@ -59,50 +70,37 @@ def plot_voltage_vs_time(time_values, voltage_values, max_voltage):
     plt.show()
 
 def plot_sampling_period_hist(time_values):
-    """Строит распределение количества измерений по их продолжительности"""
+    """Строит распределение периодов измерений"""
     sampling_periods = []
     
-    # Заполняем список разницами между соседними моментами времени
     for i in range(1, len(time_values)):
         period = time_values[i] - time_values[i-1]
         sampling_periods.append(period)
     
     plt.figure(figsize=(10, 6))
-    plt.hist(sampling_periods, bins=20, edgecolor='black')
-    plt.title('Распределение периодов измерений')
+    plt.hist(sampling_periods, bins=20, edgecolor='black', alpha=0.7)
+    plt.title('Распределение периодов измерений в процессе подбора')
     plt.xlabel('Период измерения, с')
     plt.ylabel('Количество измерений')
     plt.xlim(0, 0.06)
     plt.grid(True)
     plt.show()
 
-# Создайте объект класса R2R_ADC
+# Основная программа
 adc = R2R_ADC(dynamic_range=3.3)
 
-# Создайте два списка:
-voltage_values = []
-time_values = []
-duration = 3.0  # Продолжительность измерений
-
 try:
-    # Сохраните момент начала эксперимента
-    start_time = time.time()
+    # Получаем конечное напряжение и массивы промежуточных значений
+    final_voltage, voltage_progress, time_progress = adc.get_sc_voltage_with_progress()
     
-    # Пока разница между текущим временем и начальным моментом меньше продолжительности эксперимента:
-    while (time.time() - start_time) < duration:
-        # Добавляйте в список измеренные значения напряжений
-        voltage = adc.get_sc_voltage()
-        voltage_values.append(voltage)
-        
-        # Добавляйте в список моменты времени
-        current_time = time.time() - start_time
-        time_values.append(current_time)
+    print(f"Конечное напряжение: {final_voltage:.3f} В")
+    print(f"Количество шагов подбора: {len(voltage_progress)}")
+    print(f"Общее время подбора: {time_progress[-1]:.3f} с")
+    
+    # Построение графиков процесса подбора
+    if voltage_progress and time_progress:
+        plot_voltage_vs_time(time_progress, voltage_progress, 3.3)
+        plot_sampling_period_hist(time_progress)
 
 finally:
-    # Вызовите деструктор класса
     adc.__del__()
-
-# Построение графиков
-if voltage_values and time_values:
-    plot_voltage_vs_time(time_values, voltage_values, 3.3)
-    plot_sampling_period_hist(time_values)
