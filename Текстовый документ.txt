@@ -1,5 +1,8 @@
 import RPi.GPIO as GPIO
 import time
+import matplotlib.pyplot as plt
+import numpy as np
+from collections import deque
 
 class R2R_ADC:
     def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
@@ -54,6 +57,58 @@ class R2R_ADC:
         voltage = (number / max_number) * self.dynamic_range
         return voltage
 
+def plot_voltage_vs_time(time, voltage, max_voltage):
+    """Строит график зависимости напряжения от времени"""
+    # Создайте окно для отображения графика
+    plt.figure(figsize=(10, 6))
+    
+    # Разместите в этом окне график зависимости напряжений от времени
+    plt.plot(time, voltage)
+    
+    # Задайте название графика и осей
+    plt.title('Зависимость напряжения от времени')
+    plt.xlabel('Время, с')
+    plt.ylabel('Напряжение, В')
+    
+    # Задайте границы по осям X и Y
+    plt.xlim(0, max(time))
+    plt.ylim(0, max_voltage * 1.1)
+    
+    # Включите отображение сетки
+    plt.grid(True)
+    
+    # Отобразите график
+    plt.show()
+
+def plot_sampling_period_hist(time):
+    """Строит распределение количества измерений по их продолжительности"""
+    # Создайте список для хранения промежутка времени, потраченного на каждое измерение
+    sampling_periods = []
+    
+    # Заполните список разницами между соседними моментами времени, в которые записывались напряжения по ходу измерения напряжений
+    for i in range(1, len(time)):
+        sampling_periods.append(time[i] - time[i-1])
+    
+    # Создайте окно для отображения графика
+    plt.figure(figsize=(10, 6))
+    
+    # Разместите в этом окне гистограмму периодов измерений
+    plt.hist(sampling_periods, bins=20, alpha=0.7, edgecolor='black')
+    
+    # Задайте название графика и осей
+    plt.title('Гистограмма периодов дискретизации')
+    plt.xlabel('Период дискретизации, с')
+    plt.ylabel('Количество измерений')
+    
+    # Задайте границы по оси X
+    plt.xlim(0, 0.06)
+    
+    # Включите отображение сетки
+    plt.grid(True, alpha=0.3)
+    
+    # Отобразите гистограмму
+    plt.show()
+
 # Основной охранник
 if __name__ == "__main__":
     try:
@@ -61,13 +116,46 @@ if __name__ == "__main__":
         # ЗАМЕНИТЕ 3.3 на реально измеренное значение напряжения вашего ЦАП!
         adc = R2R_ADC(dynamic_range=3.3, verbose=False)
         
-        while True:
+        # Списки для хранения данных измерений
+        time_points = []
+        voltage_points = []
+        start_time = time.time()
+        measurement_count = 100  # Количество измерений для графиков
+        
+        print("Начало измерений для построения графиков...")
+        
+        for i in range(measurement_count):
             # Читаем напряжение
             voltage = adc.get_sc_voltage()
-            # Печатаем в терминал
-            print(f"Измеренное напряжение: {voltage:.2f} В")
-            time.sleep(1)
+            current_time = time.time() - start_time
             
+            # Сохраняем данные
+            time_points.append(current_time)
+            voltage_points.append(voltage)
+            
+            # Печатаем в терминал
+            print(f"Измерение {i+1}/{measurement_count}: {voltage:.2f} В, время: {current_time:.2f} с")
+            
+            # Пауза между измерениями
+            time.sleep(0.5)
+        
+        print("Измерения завершены. Построение графиков...")
+        
+        # Строим график напряжения от времени
+        plot_voltage_vs_time(time_points, voltage_points, adc.dynamic_range)
+        
+        # Строим гистограмму периодов дискретизации
+        plot_sampling_period_hist(time_points)
+        
+        # Выводим статистику
+        sampling_periods = [time_points[i] - time_points[i-1] for i in range(1, len(time_points))]
+        print(f"\n=== Статистика периодов дискретизации ===")
+        print(f"Количество измерений: {len(sampling_periods)}")
+        print(f"Средний период: {np.mean(sampling_periods)*1000:.2f} мс")
+        print(f"Стандартное отклонение: {np.std(sampling_periods)*1000:.2f} мс")
+        print(f"Минимальный период: {np.min(sampling_periods)*1000:.2f} мс")
+        print(f"Максимальный период: {np.max(sampling_periods)*1000:.2f} мс")
+        
     except KeyboardInterrupt:
         print("\nПрограмма прервана пользователем")
     finally:
