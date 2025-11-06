@@ -1,112 +1,157 @@
 import RPi.GPIO as GPIO
 import time
 import matplotlib.pyplot as plt
-import numpy as np
 
 class R2R_ADC:
-    def __init__(self, dynamic_range, compare_time=0.01):
+    def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
         self.dynamic_range = dynamic_range
+        self.verbose = verbose
         self.compare_time = compare_time
         
         self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
         self.comp_gpio = 21
         
-        self.time_points = []
-        self.voltage_points = []
-        self.start_time = time.time()
-        
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.bits_gpio, GPIO.OUT, initial=0)
         GPIO.setup(self.comp_gpio, GPIO.IN)
     
-    def __del__(self):
-        for pin in self.bits_gpio:
-            GPIO.output(pin, 0)
-        GPIO.cleanup()
-    
     def number_to_dac(self, number):
-        binary = format(number, '08b')
+        """Подает число number на вход ЦАП"""
         for i, pin in enumerate(self.bits_gpio):
-            GPIO.output(pin, int(binary[i]))
+            bit_value = (number >> i) & 1
+            GPIO.output(pin, bit_value)
     
     def sequential_counting_adc(self):
-        max_number = (1 << len(self.bits_gpio)) - 1
+        """Последовательный счетный АЦП"""
+        max_number = (1 << len(self.bits_gpio)) - 1  # Максимальное число для ЦАП
         
         for number in range(max_number + 1):
             self.number_to_dac(number)
             time.sleep(self.compare_time)
             
+            # Читаем состояние компаратора
             comparator_state = GPIO.input(self.comp_gpio)
             
+            if self.verbose:
+                print(f"Number: {number}, Comparator: {comparator_state}")
+            
+            # Если напряжение ЦАП превысило входное напряжение
             if comparator_state == 1:
                 return number
         
+        # Если не превысило - возвращаем максимальное число
         return max_number
     
     def get_sc_voltage(self):
-        number = self.sequential_counting_adc()
-        max_number = (1 << len(self.bits_gpio)) - 1
-        voltage = (number / max_number) * self.dynamic_range
-        
-        current_time = time.time() - self.start_time
-        self.time_points.append(current_time)
-        self.voltage_points.append(voltage)
-        
+        """Возвращает измеренное напряжение в Вольтах"""
+        digital_value = self.sequential_counting_adc()
+        max_digital_value = (1 << len(self.bits_gpio)) - 1
+        voltage = (digital_value / max_digital_value) * self.dynamic_range
         return voltage
     
-    def plot_voltage_vs_time(self):
-        plt.figure(figsize=(10, 6))
-        plt.plot(self.time_points, self.voltage_points, 'b-', linewidth=1.5)
-        plt.title('График зависимости напряжения на входе АЦП от времени')
-        plt.xlabel('Время, с')
-        plt.ylabel('Напряжение, В')
-        
-        if self.time_points:
-            plt.xlim(0, max(self.time_points))
-        plt.ylim(0, self.dynamic_range)
-        
-        y_ticks = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
-        plt.yticks(y_ticks)
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
-    
-    def plot_sampling_period_hist(self):
-        if len(self.time_points) < 2:
-            return
-        
-        sampling_periods = []
-        for i in range(1, len(self.time_points)):
-            sampling_periods.append(self.time_points[i] - self.time_points[i-1])
-        
-        plt.figure(figsize=(10, 6))
-        bins = np.linspace(0, 0.06, 13)
-        plt.hist(sampling_periods, bins=bins, alpha=0.7, edgecolor='black', color='lightblue')
-        
-        plt.title('Распределение периодов дискретизации измерений\nпо времени на одно измерение')
-        plt.xlabel('Период измерения, с')
-        plt.ylabel('Количество измерений')
-        
-        plt.xlim(0, 0.06)
-        plt.ylim(0, 1000)
-        y_ticks = [0, 200, 400, 600, 800, 1000]
-        plt.yticks(y_ticks)
-        x_ticks = [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
-        plt.xticks(x_ticks)
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
+    def __del__(self):
+        """Деструктор - очистка GPIO"""
+        GPIO.cleanup()
 
-if __name__ == "__main__":
+def plot_voltage_vs_time(time_values, voltage_values, max_voltage):
+    """Строит график зависимости напряжения от времени"""
+    plt.figure(figsize=(10, 6))
+    plt.plot(time_values, voltage_values)
+    plt.title('Зависимость напряжения от времени')
+    plt.xlabel('Время, с')
+    plt.ylabel('Напряжение, В')
+    plt.ylim(0, max_voltage * 1.1)
+    plt.grid(True)
+    plt.show()
+
+def plot_sampling_period_hist(time_values):
+    """Строит распределение количества измерений по их продолжительности"""
+    sampling_periods = []
+    
+    # Заполняем список разницами между соседними моментами времени
+    for i in range(1, len(time_values)):
+        period = time_values[i] - time_values[i-1]
+        sampling_periods.append(period)
+    
+    plt.figure(figsize=(10, 6))
+    plt.hist(sampling_periods, bins=20, edgecolor='black')
+    plt.title('Распределение периодов измерений')
+    plt.xlabel('Период измерения, с')
+    plt.ylabel('Количество измерений')
+    plt.xlim(0, 0.06)
+    plt.grid(True)
+    plt.show()
+
+def main():
+    """Основная функция для непрерывного измерения напряжения"""
     try:
-        adc = R2R_ADC(dynamic_range=3.3)
+        # Создаем объект класса R2R_ADC
+        # dynamic_range нужно заменить на реально измеренное значение мультиметром
+        adc = R2R_ADC(dynamic_range=3.3, compare_time=0.01, verbose=False)
         
         while True:
+            # Читаем напряжение
             voltage = adc.get_sc_voltage()
+            # Печатаем его в терминал
+            print(f"Измеренное напряжение: {voltage:.3f} В")
+            time.sleep(0.5)
             
     except KeyboardInterrupt:
-        pass
+        print("\nПрограмма остановлена пользователем")
     finally:
-        adc.plot_voltage_vs_time()
-        adc.plot_sampling_period_hist()
+        # Вызываем деструктор
+        if 'adc' in locals():
+            adc.__del__()
+
+def measurement_with_plot():
+    """Функция для измерения с построением графиков"""
+    # Создаем объект класса R2R_ADC
+    adc = R2R_ADC(dynamic_range=3.3, compare_time=0.01, verbose=False)
+    
+    voltage_values = []
+    time_values = []
+    duration = 3.0  # Продолжительность измерений в секундах
+    
+    try:
+        # Сохраняем момент начала эксперимента
+        start_time = time.time()
+        
+        # Пока разница между текущим временем и начальным моментом меньше продолжительности эксперимента
+        while (time.time() - start_time) < duration:
+            # Добавляем в список измеренные значения напряжений
+            voltage = adc.get_sc_voltage()
+            voltage_values.append(voltage)
+            
+            # Добавляем в список моменты времени (относительно начала)
+            current_time = time.time() - start_time
+            time_values.append(current_time)
+            
+            if len(voltage_values) % 10 == 0:
+                print(f"Измерение {len(voltage_values)}: {voltage:.3f} В")
+    
+    except KeyboardInterrupt:
+        print("\nИзмерение прервано пользователем")
+    finally:
+        # Вызываем деструктор
         adc.__del__()
+    
+    # Строим графики
+    if voltage_values and time_values:
+        plot_voltage_vs_time(time_values, voltage_values, 3.3)
+        plot_sampling_period_hist(time_values)
+    
+    return time_values, voltage_values
+
+if __name__ == "__main__":
+    print("Выберите режим работы:")
+    print("1 - Непрерывное измерение")
+    print("2 - Измерение с построением графиков")
+    
+    choice = input("Введите 1 или 2: ")
+    
+    if choice == "1":
+        main()
+    elif choice == "2":
+        measurement_with_plot()
+    else:
+        print("Неверный выбор")
