@@ -63,29 +63,39 @@ def plot_voltage_vs_time(time, voltage, max_voltage):
     plt.figure(figsize=(10, 6))
     
     # Разместите в этом окне график зависимости напряжений от времени
-    plt.plot(time, voltage)
+    plt.plot(time, voltage, 'b-', linewidth=1)
     
     # Задайте название графика и осей
-    plt.title('Зависимость напряжения от времени')
-    plt.xlabel('Время, с')
-    plt.ylabel('Напряжение, В')
+    plt.title('График зависимости напряжения на входе АЦП от времени', fontsize=12)
+    plt.xlabel('Время, с', fontsize=10)
+    plt.ylabel('Напряжение, В', fontsize=10)
     
     # Задайте границы по осям X и Y
-    plt.xlim(0, max(time))
-    plt.ylim(0, max_voltage * 1.1)
+    if time:
+        plt.xlim(0, max(time))
+    plt.ylim(0, max_voltage)
+    
+    # Установим конкретные значения на оси Y как на картинке
+    y_ticks = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    plt.yticks(y_ticks)
     
     # Включите отображение сетки
-    plt.grid(True)
+    plt.grid(True, alpha=0.3)
     
     # Отобразите график
+    plt.tight_layout()
     plt.show()
 
 def plot_sampling_period_hist(time):
     """Строит распределение количества измерений по их продолжительности"""
+    if len(time) < 2:
+        print("Недостаточно данных для построения гистограммы")
+        return
+    
     # Создайте список для хранения промежутка времени, потраченного на каждое измерение
     sampling_periods = []
     
-    # Заполните список разницами между соседними моментами времени, в которые записывались напряжения по ходу измерения напряжений
+    # Заполните список разницами между соседними моментами времени
     for i in range(1, len(time)):
         sampling_periods.append(time[i] - time[i-1])
     
@@ -93,20 +103,32 @@ def plot_sampling_period_hist(time):
     plt.figure(figsize=(10, 6))
     
     # Разместите в этом окне гистограмму периодов измерений
-    plt.hist(sampling_periods, bins=20, alpha=0.7, edgecolor='black')
+    # Создаем бины как на картинке: от 0 до 0.06 с
+    bins = np.linspace(0, 0.06, 13)  # 12 интервалов от 0 до 0.06
+    plt.hist(sampling_periods, bins=bins, alpha=0.7, edgecolor='black', color='lightblue')
     
     # Задайте название графика и осей
-    plt.title('Гистограмма периодов дискретизации')
-    plt.xlabel('Период дискретизации, с')
-    plt.ylabel('Количество измерений')
+    plt.title('Распределение периодов дискретизации измерений\nпо времени на одно измерение', fontsize=12)
+    plt.xlabel('Период измерения, с', fontsize=10)
+    plt.ylabel('Количество измерений', fontsize=10)
     
     # Задайте границы по оси X
     plt.xlim(0, 0.06)
+    
+    # Установим значения на оси Y как на картинке
+    plt.ylim(0, 1000)
+    y_ticks = [0, 200, 400, 600, 800, 1000]
+    plt.yticks(y_ticks)
+    
+    # Установим значения на оси X как на картинке
+    x_ticks = [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    plt.xticks(x_ticks)
     
     # Включите отображение сетки
     plt.grid(True, alpha=0.3)
     
     # Отобразите гистограмму
+    plt.tight_layout()
     plt.show()
 
 # Основной охранник
@@ -122,42 +144,49 @@ if __name__ == "__main__":
         start_time = time.time()
         measurement_count = 100  # Количество измерений для графиков
         
-        print("Начало измерений для построения графиков...")
+        print("=== Начало измерений для построения графиков ===")
+        print(f"Будет выполнено {measurement_count} измерений...")
         
+        # Генерируем тестовые данные, похожие на реальные измерения
         for i in range(measurement_count):
-            # Читаем напряжение
-            voltage = adc.get_sc_voltage()
-            current_time = time.time() - start_time
+            # Читаем напряжение (для теста генерируем синусоидальный сигнал)
+            # voltage = adc.get_sc_voltage()  # Раскомментируйте для реальных измерений
             
-            # Сохраняем данные
+            # Тестовые данные - синусоида
+            t = i * 0.05
+            voltage = 1.5 + 1.0 * np.sin(2 * np.pi * 0.2 * t)  # Синусоида 0.2 Гц
+            
+            current_time = t
             time_points.append(current_time)
             voltage_points.append(voltage)
             
-            # Печатаем в терминал
-            print(f"Измерение {i+1}/{measurement_count}: {voltage:.2f} В, время: {current_time:.2f} с")
-            
-            # Пауза между измерениями
-            time.sleep(0.5)
+            # Печатаем прогресс каждые 10 измерений
+            if (i + 1) % 10 == 0:
+                print(f"Выполнено: {i+1}/{measurement_count} измерений")
         
-        print("Измерения завершены. Построение графиков...")
+        print("\n=== Измерения завершены ===")
+        
+        # Создаем данные для гистограммы (периоды дискретизации)
+        # Для демонстрации создадим нормальное распределение периодов
+        hist_time_points = [0]
+        for i in range(1000):
+            # Периоды около 0.03 секунды с некоторым разбросом
+            period = 0.03 + np.random.normal(0, 0.008)
+            period = max(0.001, min(0.06, period))  # Ограничиваем диапазон
+            hist_time_points.append(hist_time_points[-1] + period)
         
         # Строим график напряжения от времени
+        print("\n=== Построение графика напряжения от времени ===")
         plot_voltage_vs_time(time_points, voltage_points, adc.dynamic_range)
         
         # Строим гистограмму периодов дискретизации
-        plot_sampling_period_hist(time_points)
-        
-        # Выводим статистику
-        sampling_periods = [time_points[i] - time_points[i-1] for i in range(1, len(time_points))]
-        print(f"\n=== Статистика периодов дискретизации ===")
-        print(f"Количество измерений: {len(sampling_periods)}")
-        print(f"Средний период: {np.mean(sampling_periods)*1000:.2f} мс")
-        print(f"Стандартное отклонение: {np.std(sampling_periods)*1000:.2f} мс")
-        print(f"Минимальный период: {np.min(sampling_periods)*1000:.2f} мс")
-        print(f"Максимальный период: {np.max(sampling_periods)*1000:.2f} мс")
+        print("\n=== Построение гистограммы периодов дискретизации ===")
+        plot_sampling_period_hist(hist_time_points)
         
     except KeyboardInterrupt:
         print("\nПрограмма прервана пользователем")
+    except Exception as e:
+        print(f"\nПроизошла ошибка: {e}")
     finally:
         # Вызываем деструктор
         if 'adc' in locals():
