@@ -11,6 +11,10 @@ class R2R_ADC:
         self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
         self.comp_gpio = 21
         
+        self.time_points = []
+        self.voltage_points = []
+        self.start_time = time.time()
+        
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.bits_gpio, GPIO.OUT, initial=0)
         GPIO.setup(self.comp_gpio, GPIO.IN)
@@ -43,69 +47,66 @@ class R2R_ADC:
         number = self.sequential_counting_adc()
         max_number = (1 << len(self.bits_gpio)) - 1
         voltage = (number / max_number) * self.dynamic_range
+        
+        current_time = time.time() - self.start_time
+        self.time_points.append(current_time)
+        self.voltage_points.append(voltage)
+        
         return voltage
-
-def plot_voltage_vs_time(time, voltage, max_voltage):
-    plt.figure(figsize=(10, 6))
-    plt.plot(time, voltage, 'b-', linewidth=1.5)
-    plt.title('График зависимости напряжения на входе АЦП от времени')
-    plt.xlabel('Время, с')
-    plt.ylabel('Напряжение, В')
     
-    if time:
-        plt.xlim(0, max(time))
-    plt.ylim(0, max_voltage)
+    def plot_voltage_vs_time(self):
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.time_points, self.voltage_points, 'b-', linewidth=1.5)
+        plt.title('График зависимости напряжения на входе АЦП от времени')
+        plt.xlabel('Время, с')
+        plt.ylabel('Напряжение, В')
+        
+        if self.time_points:
+            plt.xlim(0, max(self.time_points))
+        plt.ylim(0, self.dynamic_range)
+        
+        y_ticks = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+        plt.yticks(y_ticks)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
     
-    y_ticks = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
-    plt.yticks(y_ticks)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-
-def plot_sampling_period_hist(time):
-    if len(time) < 2:
-        return
-    
-    sampling_periods = []
-    for i in range(1, len(time)):
-        sampling_periods.append(time[i] - time[i-1])
-    
-    plt.figure(figsize=(10, 6))
-    bins = np.linspace(0, 0.06, 13)
-    plt.hist(sampling_periods, bins=bins, alpha=0.7, edgecolor='black', color='lightblue')
-    
-    plt.title('Распределение периодов дискретизации измерений\nпо времени на одно измерение')
-    plt.xlabel('Период измерения, с')
-    plt.ylabel('Количество измерений')
-    
-    plt.xlim(0, 0.06)
-    plt.ylim(0, 1000)
-    y_ticks = [0, 200, 400, 600, 800, 1000]
-    plt.yticks(y_ticks)
-    x_ticks = [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
-    plt.xticks(x_ticks)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.show()
+    def plot_sampling_period_hist(self):
+        if len(self.time_points) < 2:
+            return
+        
+        sampling_periods = []
+        for i in range(1, len(self.time_points)):
+            sampling_periods.append(self.time_points[i] - self.time_points[i-1])
+        
+        plt.figure(figsize=(10, 6))
+        bins = np.linspace(0, 0.06, 13)
+        plt.hist(sampling_periods, bins=bins, alpha=0.7, edgecolor='black', color='lightblue')
+        
+        plt.title('Распределение периодов дискретизации измерений\nпо времени на одно измерение')
+        plt.xlabel('Период измерения, с')
+        plt.ylabel('Количество измерений')
+        
+        plt.xlim(0, 0.06)
+        plt.ylim(0, 1000)
+        y_ticks = [0, 200, 400, 600, 800, 1000]
+        plt.yticks(y_ticks)
+        x_ticks = [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+        plt.xticks(x_ticks)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
 
 if __name__ == "__main__":
     try:
         adc = R2R_ADC(dynamic_range=3.3)
         
-        time_points = []
-        voltage_points = []
-        start_time = time.time()
-        
         while True:
             voltage = adc.get_sc_voltage()
-            current_time = time.time() - start_time
-            
-            time_points.append(current_time)
-            voltage_points.append(voltage)
             
     except KeyboardInterrupt:
-        plot_voltage_vs_time(time_points, voltage_points, 3.3)
-        plot_sampling_period_hist(time_points)
+        pass
     finally:
-        if 'adc' in locals():
-            adc.__del__()
+        adc.plot_voltage_vs_time()
+        adc.plot_sampling_period_hist()
+        adc.__del__()
